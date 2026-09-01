@@ -22,13 +22,21 @@
         dumps only show a deadlock AFTER it happens at runtime; no
         Marketplace plugin found does static lock-order cycle detection
         ahead of time.</p>
-        <p>Stated honestly: v0.1 is bounded to <b>one class at a
+        <p><b>v0.2: cross-method edges.</b> A lock acquired not by
+        direct textual nesting but through a call to ANOTHER method of
+        the same class -- <code>synchronized(a) { helper(); }</code>
+        where <code>helper()</code> itself acquires lock <code>b</code>
+        (directly, or transitively through its own calls) -- is now
+        followed too, with real-cycle-safe memoization so a genuine
+        call cycle between methods never hangs or crashes.</p>
+        <p>Stated honestly: still bounded to <b>one class at a
         time</b> -- it never resolves locks passed between different
-        classes, and matches lock identity by exact expression text
-        (<code>lockA</code> and <code>this.lockA</code> are treated as
-        different locks). Java only; <code>ReentrantLock</code>/
-        <code>java.util.concurrent</code> locks and Kotlin's
-        <code>synchronized(){}</code> are not yet covered.</p>
+        classes (including for the calls it follows), and matches lock
+        identity by exact expression text (<code>lockA</code> and
+        <code>this.lockA</code> are treated as different locks). Java
+        only; <code>ReentrantLock</code>/<code>java.util.concurrent</code>
+        locks and Kotlin's <code>synchronized(){}</code> are not yet
+        covered.</p>
         <p>Free. No license nags, no telemetry, no network calls.</p>
     ]]></description>
 

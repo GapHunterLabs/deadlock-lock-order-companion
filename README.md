@@ -31,17 +31,27 @@ not a search-pattern/text-linting plugin.
   runs a real depth-first search for cycles -- a back-edge to a node
   already on the current DFS stack is a closed cycle, the textbook
   signal for a potential deadlock.
-- **Bounded to one class at a time.** A cross-class/cross-file lock
-  graph would require real call-graph resolution across the whole
-  project -- out of scope for an honest v0.1 in a plugin built with a
-  lexer/PSI/Annotator, no backend, no external analysis engine.
+- **v0.2: cross-method edges, still bounded to one class.**
+  `TransitiveLockResolver` computes, for every method of the class,
+  every lock it can end up holding -- not just its own `synchronized`
+  sites, but transitively through calls to OTHER methods of the SAME
+  class. `synchronized(a) { helper(); }` where `helper()` acquires
+  lock `b` is exactly as real an a->b edge as direct textual nesting.
+  Memoized per class (the same callee is often reached from several
+  call sites) with cycle protection: a genuine call cycle between
+  methods (`a()` calls `b()` calls `a()`) is broken by tracking the
+  current resolution path, never hangs or crashes. A call to another
+  CLASS (an unresolved receiver, a library call) is never followed --
+  that would need real cross-class/cross-file resolution across the
+  whole project, out of scope for a plugin built with a lexer/PSI/
+  Annotator, no backend, no external analysis engine.
 - **Lock identity is by exact expression text.** `lockA` and
   `this.lockA` are never merged as "the same lock" even if they refer
   to the same object at runtime, and two different fields that happen
   to share a name are never told apart either. Same acknowledged
   limitation as every other text/PSI-based plugin in this catalog
   (never full type/points-to resolution).
-- **Java only in v0.1.** `synchronized` is a real Java keyword/PSI
+- **Java only.** `synchronized` is a real Java keyword/PSI
   node (`PsiSynchronizedStatement`); Kotlin has no equivalent keyword,
   only an inline stdlib function `synchronized(lock) { ... }` --
   structurally different PSI, deferred to a future version.
