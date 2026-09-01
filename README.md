@@ -31,20 +31,31 @@ not a search-pattern/text-linting plugin.
   runs a real depth-first search for cycles -- a back-edge to a node
   already on the current DFS stack is a closed cycle, the textbook
   signal for a potential deadlock.
-- **v0.2: cross-method edges, still bounded to one class.**
+- **v0.2: cross-method edges within one class.**
   `TransitiveLockResolver` computes, for every method of the class,
   every lock it can end up holding -- not just its own `synchronized`
   sites, but transitively through calls to OTHER methods of the SAME
   class. `synchronized(a) { helper(); }` where `helper()` acquires
   lock `b` is exactly as real an a->b edge as direct textual nesting.
-  Memoized per class (the same callee is often reached from several
-  call sites) with cycle protection: a genuine call cycle between
-  methods (`a()` calls `b()` calls `a()`) is broken by tracking the
-  current resolution path, never hangs or crashes. A call to another
-  CLASS (an unresolved receiver, a library call) is never followed --
-  that would need real cross-class/cross-file resolution across the
-  whole project, out of scope for a plugin built with a lexer/PSI/
-  Annotator, no backend, no external analysis engine.
+  Memoized (the same callee is often reached from several call sites)
+  with cycle protection: a genuine call cycle between methods (`a()`
+  calls `b()` calls `a()`) is broken by tracking the current
+  resolution path, never hangs or crashes.
+- **v0.3: cross-CLASS edges through an injected collaborator.** A call
+  like `synchronized(a) { collaborator.helper(); }`, where
+  `collaborator` is a field/parameter of the caller's class, is
+  followed into the collaborator's own lock graph the exact same way
+  -- the most common real-production shape (a service calling into
+  another injected service). Resolving "which concrete class is this"
+  is real, never a guess: a concrete declared type is used directly;
+  an interface/abstract type is followed only when exactly ONE class
+  in the same module implements it -- two or more real implementations
+  is genuine ambiguity, left unresolved. The chain is bounded to a
+  fixed depth (3 collaborator classes deep) -- an explicit, documented
+  cost bound for what would otherwise be an unbounded walk through a
+  dense collaboration graph. A call whose receiver can't be resolved
+  this way (a library call, an ambiguous interface, a chain past the
+  depth limit) is never followed.
 - **Lock identity is by exact expression text.** `lockA` and
   `this.lockA` are never merged as "the same lock" even if they refer
   to the same object at runtime, and two different fields that happen

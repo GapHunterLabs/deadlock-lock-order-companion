@@ -29,12 +29,19 @@
         (directly, or transitively through its own calls) -- is now
         followed too, with real-cycle-safe memoization so a genuine
         call cycle between methods never hangs or crashes.</p>
-        <p>Stated honestly: still bounded to <b>one class at a
-        time</b> -- it never resolves locks passed between different
-        classes (including for the calls it follows), and matches lock
-        identity by exact expression text (<code>lockA</code> and
-        <code>this.lockA</code> are treated as different locks). Java
-        only; <code>ReentrantLock</code>/<code>java.util.concurrent</code>
+        <p><b>v0.3: cross-CLASS edges through an injected collaborator.</b>
+        A call like <code>synchronized(a) { collaborator.helper(); }</code>,
+        where <code>collaborator</code> is a field/parameter of the
+        caller's class, is now followed into the collaborator's own
+        lock graph -- the most common real-production shape (a service
+        calling into another injected service). An interface/abstract
+        collaborator type is followed only when exactly ONE class in
+        the same module implements it; the chain is bounded to 3
+        collaborator classes deep, an explicit documented cost bound.</p>
+        <p>Stated honestly: lock identity is matched by exact expression
+        text (<code>lockA</code> and <code>this.lockA</code> are treated
+        as different locks). Java only;
+        <code>ReentrantLock</code>/<code>java.util.concurrent</code>
         locks and Kotlin's <code>synchronized(){}</code> are not yet
         covered.</p>
         <p>Free. No license nags, no telemetry, no network calls.</p>

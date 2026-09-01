@@ -67,7 +67,7 @@ object JavaLockNestingFinder {
                 collectNestedSynchronized(body, method).forEach { inner ->
                     edges += LockNestingEdge(implicitLock, inner.first, method.nameIdentifier ?: method, inner.second, method.name)
                 }
-                collectTransitiveNestedLocks(body, implicitLock, method, transitiveSummaries).forEach { edges += it }
+                collectTransitiveNestedLocks(body, implicitLock, method, psiClass, transitiveSummaries).forEach { edges += it }
             }
 
             body.accept(object : JavaRecursiveElementWalkingVisitor() {
@@ -79,7 +79,7 @@ object JavaLockNestingFinder {
                     collectNestedSynchronized(outerBody, method).forEach { inner ->
                         edges += LockNestingEdge(outerLockText, inner.first, outerAnchor, inner.second, method.name)
                     }
-                    collectTransitiveNestedLocks(outerBody, outerLockText, method, transitiveSummaries, outerAnchor).forEach { edges += it }
+                    collectTransitiveNestedLocks(outerBody, outerLockText, method, psiClass, transitiveSummaries, outerAnchor).forEach { edges += it }
                 }
             })
         }
@@ -88,20 +88,30 @@ object JavaLockNestingFinder {
     }
 
     /**
-     * Every lock acquired transitively (through a call to another method
-     * of the same class -- see [TransitiveLockResolver]) by a call site
-     * lexically inside [scope], each as its own edge from [outerLockText].
-     * Mirrors [collectNestedSynchronized]'s "nearest site per branch"
-     * shape but for calls instead of direct `synchronized` statements --
-     * a call already captures everything the callee (transitively)
-     * acquires, so there is no risk of double-counting by not descending
-     * further past a call site the way direct nesting must stop at the
-     * first `synchronized`.
+     * Every lock acquired transitively -- through a call to another
+     * method of the same class, or (v0.3) an injected collaborator --
+     * by a call site lexically inside [scope], each as its own edge
+     * from [outerLockText]. Mirrors [collectNestedSynchronized]'s
+     * "nearest site per branch" shape but for calls instead of direct
+     * `synchronized` statements -- a call already captures everything
+     * the callee (transitively) acquires, so there is no risk of
+     * double-counting by not descending further past a call site the
+     * way direct nesting must stop at the first `synchronized`.
+     *
+     * Looks up each call's target via [TransitiveLockResolver.resolveCallTarget]
+     * (never `PsiMethodCallExpression.resolveMethod()` directly) --
+     * for a collaborator call declared through an interface/abstract
+     * type, `resolveMethod()` alone resolves to that DECLARED method,
+     * which is never the key [summaries] is memoized under (the
+     * concrete implementation `resolveCallTarget` actually analyzed).
+     * Confirmed the hard way: without this, every v0.3 test involving
+     * an interface-typed collaborator field silently found zero edges.
      */
     private fun collectTransitiveNestedLocks(
         scope: PsiElement,
         outerLockText: String,
         outerMethod: PsiMethod,
+        owningClass: PsiClass,
         summaries: Map<PsiMethod, MethodLockSummary>,
         outerAnchorOverride: PsiElement? = null,
     ): List<LockNestingEdge> {
@@ -110,8 +120,8 @@ object JavaLockNestingFinder {
         fun walk(element: PsiElement) {
             if (element is PsiSynchronizedStatement) return // direct nesting already handled by collectNestedSynchronized -- don't double-count
             if (element is com.intellij.psi.PsiMethodCallExpression) {
-                val callee = element.resolveMethod()
-                val summary = callee?.let { summaries[it] }
+                val target = TransitiveLockResolver.resolveCallTarget(element, owningClass, depth = 0)
+                val summary = target?.let { (_, targetMethod, _) -> summaries[targetMethod] }
                 if (summary != null) {
                     for ((lockText, anchor) in summary.firstLockAnchor) {
                         if (lockText == outerLockText) continue // acquiring the SAME lock again (reentrant) is not a new edge

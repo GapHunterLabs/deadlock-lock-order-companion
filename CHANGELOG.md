@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+
+- Cross-CLASS lock-order edges: a lock acquired through a call to an
+  injected collaborator (a field/parameter of the caller's class whose
+  declared type resolves to a single concrete class) is now followed
+  into that collaborator's own lock graph -- the most common
+  real-production shape (a service calling into another injected
+  service), not just self-recursion within one class.
+- An interface/abstract collaborator type is followed only when
+  exactly one concrete class implements it within the same module --
+  two or more real implementations is genuine ambiguity, never
+  resolved by guessing.
+- Collaborator-chain depth is bounded to a fixed limit (3 classes
+  deep) -- an explicit, documented cost bound for what would otherwise
+  be an unbounded walk through a dense collaboration graph.
+
 ## [0.2.0]
 
 ### Added
@@ -34,5 +52,7 @@
   permanent "Don't ask again" option. Standard mechanism used
   catalog-wide since 2026-08-24.
 
-[Unreleased]: https://github.com/GapHunterLabs/deadlock-lock-order-companion/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/GapHunterLabs/deadlock-lock-order-companion/compare/0.3.0...HEAD
+[0.3.0]: https://github.com/GapHunterLabs/deadlock-lock-order-companion/compare/0.2.0...0.3.0
+[0.2.0]: https://github.com/GapHunterLabs/deadlock-lock-order-companion/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/GapHunterLabs/deadlock-lock-order-companion/commits/0.1.0
