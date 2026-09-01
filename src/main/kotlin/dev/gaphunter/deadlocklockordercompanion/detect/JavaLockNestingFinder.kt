@@ -22,10 +22,18 @@ import dev.gaphunter.deadlocklockordercompanion.model.LockNestingEdge
  * JLS itself uses (17.1, "synchronized methods automatically perform a
  * synchronized action").
  *
- * **v0.1 scope, stated honestly:**
+ * **v0.2 adds cross-method edges within the same class** (see
+ * [TransitiveLockResolver]): a `synchronized(a) { helper(); }` where
+ * `helper()` itself acquires lock `b` (directly, or via ITS OWN calls,
+ * transitively) is exactly as real an a->b edge as direct textual
+ * nesting -- v0.1 could not see this at all, since it never followed
+ * a call.
+ *
+ * **v0.2 scope, stated honestly (some limits inherited from v0.1):**
  * - Bounded to ONE class at a time (see README) -- no cross-class/
- *   cross-file resolution. A nesting edge only exists between two
- *   `synchronized` sites textually inside the same class body.
+ *   cross-file resolution, including for the calls followed by
+ *   [TransitiveLockResolver] (a call to another class/library is
+ *   never followed).
  * - Lock identity is by **exact expression text** (`this`, `lockA`,
  *   `this.cacheLock`) -- two different-looking expressions that
  *   happen to reference the same object at runtime are never merged;
@@ -33,16 +41,21 @@ import dev.gaphunter.deadlocklockordercompanion.model.LockNestingEdge
  *   never told apart. Same acknowledged limitation as every other
  *   catalog plugin that matches by text/PSI rather than full type/
  *   points-to resolution.
- * - Only the direct/first inner `synchronized` found inside each
- *   outer block is recorded per outer site -- multiple sibling inner
- *   blocks each produce their own edge (all real), but a
- *   triple-nested case still produces edges transitively (A->B, B->C)
- *   which is exactly what the cycle search over the whole graph needs.
+ * - Only the direct/first inner `synchronized` (or first lock-taking
+ *   call) found inside each outer block is recorded per outer site --
+ *   multiple sibling inner blocks each produce their own edge (all
+ *   real), but a triple-nested case still produces edges transitively
+ *   (A->B, B->C) which is exactly what the cycle search over the
+ *   whole graph needs.
  */
 object JavaLockNestingFinder {
 
     fun findAll(psiClass: PsiClass): List<LockNestingEdge> {
         val edges = mutableListOf<LockNestingEdge>()
+        // Computed once per class, memoized across every method -- the real
+        // mechanism that lets an edge be discovered THROUGH a call to another
+        // method of the class, not just direct textual synchronized nesting.
+        val transitiveSummaries = TransitiveLockResolver.resolveAll(psiClass)
 
         for (method in psiClass.methods) {
             val body = method.body ?: continue
@@ -50,36 +63,66 @@ object JavaLockNestingFinder {
             if (implicitLock != null) {
                 // The whole method body is itself inside an implicit
                 // synchronized region -- any synchronized block/method
-                // reached from here nests one level deeper.
+                // reached from here (directly or via a call) nests one level deeper.
                 collectNestedSynchronized(body, method).forEach { inner ->
-                    edges += LockNestingEdge(
-                        outerLock = implicitLock,
-                        innerLock = inner.first,
-                        outerAnchor = method.nameIdentifier ?: method,
-                        innerAnchor = inner.second,
-                        containingMethodName = method.name,
-                    )
+                    edges += LockNestingEdge(implicitLock, inner.first, method.nameIdentifier ?: method, inner.second, method.name)
                 }
+                collectTransitiveNestedLocks(body, implicitLock, method, transitiveSummaries).forEach { edges += it }
             }
 
             body.accept(object : JavaRecursiveElementWalkingVisitor() {
                 override fun visitSynchronizedStatement(statement: PsiSynchronizedStatement) {
                     super.visitSynchronizedStatement(statement)
                     val outerLockText = statement.lockExpression?.text ?: return
+                    val outerAnchor = statement.lockExpression ?: statement
                     val outerBody = statement.body ?: return
                     collectNestedSynchronized(outerBody, method).forEach { inner ->
-                        edges += LockNestingEdge(
-                            outerLock = outerLockText,
-                            innerLock = inner.first,
-                            outerAnchor = statement.lockExpression ?: statement,
-                            innerAnchor = inner.second,
-                            containingMethodName = method.name,
-                        )
+                        edges += LockNestingEdge(outerLockText, inner.first, outerAnchor, inner.second, method.name)
                     }
+                    collectTransitiveNestedLocks(outerBody, outerLockText, method, transitiveSummaries, outerAnchor).forEach { edges += it }
                 }
             })
         }
 
+        return edges
+    }
+
+    /**
+     * Every lock acquired transitively (through a call to another method
+     * of the same class -- see [TransitiveLockResolver]) by a call site
+     * lexically inside [scope], each as its own edge from [outerLockText].
+     * Mirrors [collectNestedSynchronized]'s "nearest site per branch"
+     * shape but for calls instead of direct `synchronized` statements --
+     * a call already captures everything the callee (transitively)
+     * acquires, so there is no risk of double-counting by not descending
+     * further past a call site the way direct nesting must stop at the
+     * first `synchronized`.
+     */
+    private fun collectTransitiveNestedLocks(
+        scope: PsiElement,
+        outerLockText: String,
+        outerMethod: PsiMethod,
+        summaries: Map<PsiMethod, MethodLockSummary>,
+        outerAnchorOverride: PsiElement? = null,
+    ): List<LockNestingEdge> {
+        val edges = mutableListOf<LockNestingEdge>()
+        val outerAnchor = outerAnchorOverride ?: (outerMethod.nameIdentifier ?: outerMethod)
+        fun walk(element: PsiElement) {
+            if (element is PsiSynchronizedStatement) return // direct nesting already handled by collectNestedSynchronized -- don't double-count
+            if (element is com.intellij.psi.PsiMethodCallExpression) {
+                val callee = element.resolveMethod()
+                val summary = callee?.let { summaries[it] }
+                if (summary != null) {
+                    for ((lockText, anchor) in summary.firstLockAnchor) {
+                        if (lockText == outerLockText) continue // acquiring the SAME lock again (reentrant) is not a new edge
+                        edges += LockNestingEdge(outerLockText, lockText, outerAnchor, anchor, outerMethod.name)
+                    }
+                    return // the callee's own summary already covers everything reachable from here
+                }
+            }
+            for (child in element.children) walk(child)
+        }
+        for (child in scope.children) walk(child)
         return edges
     }
 

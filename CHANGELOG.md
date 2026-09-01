@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+
+- Cross-method lock-order edges: a lock acquired through a call to
+  another method of the same class (directly, or transitively through
+  that method's own calls) is now followed, not just direct textual
+  `synchronized` nesting. Memoized per class with real-cycle
+  protection (a genuine call cycle between methods never hangs or
+  crashes -- it contributes an empty summary once already in
+  progress on the current resolution path).
+- A call that re-enters the same lock already held (reentrant) is
+  correctly never reported as a new acquisition-order edge.
+
 ## [0.1.0]
 
 ### Added
