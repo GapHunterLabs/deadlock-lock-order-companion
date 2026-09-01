@@ -1,0 +1,43 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>dev.gaphunter.deadlocklockordercompanion</id>
+    <name>Deadlock Lock-Order Companion</name>
+    <vendor>Gap Hunter Labs</vendor>
+    <description><![CDATA[
+        <p>Builds a real lock acquisition-order graph from
+        <code>synchronized</code> blocks/methods inside a single Java
+        class, and flags a gutter warning on every site that closes a
+        CYCLE in that graph -- the classic static-deadlock signal: one
+        method acquires lock A then, while still holding it, acquires
+        lock B; another method in the same class acquires B then A.
+        If two threads hit those two methods at the same time, each
+        can end up holding one lock while waiting forever for the
+        other.</p>
+        <p><b>A real mechanism, not a text pattern</b> -- this walks
+        the actual PSI tree to find genuine lexical nesting of
+        <code>synchronized</code> sites, builds a directed graph keyed
+        by the lock expression text, and runs a real DFS cycle search
+        over it (the textbook approach from MIT/ECOOP 2005 "Static
+        Deadlock Detection for Java Libraries"). IntelliJ's own thread
+        dumps only show a deadlock AFTER it happens at runtime; no
+        Marketplace plugin found does static lock-order cycle detection
+        ahead of time.</p>
+        <p>Stated honestly: v0.1 is bounded to <b>one class at a
+        time</b> -- it never resolves locks passed between different
+        classes, and matches lock identity by exact expression text
+        (<code>lockA</code> and <code>this.lockA</code> are treated as
+        different locks). Java only; <code>ReentrantLock</code>/
+        <code>java.util.concurrent</code> locks and Kotlin's
+        <code>synchronized(){}</code> are not yet covered.</p>
+        <p>Free. No license nags, no telemetry, no network calls.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <codeInsight.lineMarkerProvider language="JAVA"
+            implementationClass="dev.gaphunter.deadlocklockordercompanion.gutter.LockOrderCycleLineMarkerProvider"/>
+        <notificationGroup id="Deadlock Lock-Order Companion" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>
