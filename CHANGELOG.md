@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The rating prompt's local counter keeps one-way fingerprints of findings
+  instead of their file paths, and deletes the list that earlier versions
+  kept.
+- `PRIVACY.md` describes the values the plugin keeps in the IDE's local
+  settings.
+
 ## [0.3.1]
 
 ### Fixed

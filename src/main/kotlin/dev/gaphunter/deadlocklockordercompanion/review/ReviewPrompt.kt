@@ -7,6 +7,7 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.IconLoader
+import java.security.MessageDigest
 
 /**
  * Asks the user to rate the plugin on Marketplace, once, after the
@@ -36,7 +37,10 @@ object ReviewPrompt {
     /** Caps how many dedupe keys are retained -- well past HITS_BEFORE_PROMPT, just a sane upper bound. */
     private const val MAX_TRACKED_KEYS = 500
 
-    private const val KEY_SEEN_FINDINGS = "dev.gaphunter.deadlocklockordercompanion.review.seenFindings"
+    // Fingerprints of findings already counted (see fingerprint), never file paths. Versions before
+    // this change kept the raw keys under the legacy name; recordHit removes that list.
+    private const val KEY_SEEN_FINDINGS = "dev.gaphunter.deadlocklockordercompanion.review.seenFindingHashes"
+    private const val KEY_LEGACY_SEEN_FINDINGS = "dev.gaphunter.deadlocklockordercompanion.review.seenFindings"
     private const val KEY_ANSWERED = "dev.gaphunter.deadlocklockordercompanion.review.answered"
 
     private const val NOTIFICATION_GROUP_ID = "Deadlock Lock-Order Companion"
@@ -55,10 +59,11 @@ object ReviewPrompt {
      */
     fun recordHit(project: Project?, dedupeKey: String) {
         val properties = PropertiesComponent.getInstance()
+        properties.unsetValue(KEY_LEGACY_SEEN_FINDINGS) // also for users who already answered
         if (properties.getBoolean(KEY_ANSWERED)) return
 
         val seen = properties.getList(KEY_SEEN_FINDINGS)?.toMutableSet() ?: mutableSetOf()
-        if (!seen.add(dedupeKey)) return // already counted this exact finding
+        if (!seen.add(fingerprint(dedupeKey))) return // already counted this exact finding
 
         if (seen.size > MAX_TRACKED_KEYS) {
             // Drop to just the count once the tracked set gets large --
@@ -73,6 +78,14 @@ object ReviewPrompt {
             showPrompt(project)
         }
     }
+
+    /**
+     * One-way, fixed-length fingerprint of a dedupe key: enough to recognize the same finding again, never
+     * reversible to the file path or line it was built from.
+     */
+    private fun fingerprint(dedupeKey: String): String =
+        MessageDigest.getInstance("SHA-256").digest(dedupeKey.toByteArray(Charsets.UTF_8))
+            .take(8).joinToString("") { "%02x".format(it) }
 
     private fun showPrompt(project: Project?) {
         val properties = PropertiesComponent.getInstance()
